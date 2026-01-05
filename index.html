@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>খিদে লাগছে | রাইডার অ্যাপ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- Leaflet CSS for Map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;600;700&display=swap');
+        body { font-family: 'Hind Siliguri', sans-serif; background-color: #f3f4f6; padding-bottom: 80px; -webkit-tap-highlight-color: transparent; }
+        .tab-content { display: none; }
+        .active-tab { display: block; }
+        .nav-active { color: #ef4444; border-top: 3px solid #ef4444; }
+        
+        .switch { position: relative; display: inline-block; width: 50px; height: 26px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #22c55e; }
+        input:checked + .slider:before { transform: translateX(24px); }
+
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .animate-spin-custom { animation: spin 1.2s linear infinite; }
+
+        .msg-box { max-width: 80%; padding: 10px 15px; font-weight: 600; font-size: 14px; margin-bottom: 2px; position: relative; }
+        .msg-rider { background-color: #ef4444; color: white; align-self: flex-end; border-radius: 18px 18px 2px 18px; }
+        .msg-customer { background-color: #ffffff; color: #1f2937; align-self: flex-start; border-radius: 18px 18px 18px 2px; border: 1px solid #e5e7eb; }
+
+        #in-app-notif {
+            position: fixed; top: 20px; left: 15px; right: 15px; background: white; border: 2px solid #ef4444;
+            border-radius: 25px; padding: 12px 18px; display: flex; align-items: center; gap: 12px;
+            z-index: 1000; box-shadow: 0 10px 25px rgba(239, 68, 68, 0.15);
+            transform: translateY(-150%); transition: transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); cursor: pointer;
+        }
+        #in-app-notif.show { transform: translateY(0); }
+        .notif-icon { width: 40px; height: 40px; background: #fee2e2; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #ef4444; flex-shrink: 0; }
+        
+        /* Map Styles */
+        #tracking-map { height: 100%; width: 100%; z-index: 1; background: #e5e7eb; }
+        .map-wrapper { position: relative; flex: 1; width: 100%; overflow: hidden; }
+        
+        /* Smooth marker movement class */
+        .leaflet-marker-icon { transition: all 1s linear; }
+    </style>
+</head>
+<body onclick="unlockAudio()">
+
+    <!-- Red Border Notification Bar -->
+    <div id="in-app-notif" onclick="closeNotification()">
+        <div class="notif-icon"><i class="fas fa-comment-dots text-lg"></i></div>
+        <div class="flex-1 overflow-hidden">
+            <p class="text-[11px] font-bold text-red-600 leading-tight">কাস্টমার মেসেজ পাঠিয়েছেন</p>
+            <p id="notif-text" class="text-sm font-black text-gray-800 truncate">লোড হচ্ছে...</p>
+        </div>
+    </div>
+
+    <!-- Notification Sounds -->
+    <audio id="alert-sound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto" loop></audio>
+    <audio id="chat-sound" src="https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3" preload="auto"></audio>
+
+    <!-- Auth Screen -->
+    <div id="auth-screen" class="fixed inset-0 min-h-screen flex items-center justify-center p-6 bg-gray-900 z-[100]">
+        <div class="bg-white p-8 rounded-[2.5rem] shadow-2xl w-full max-w-md border-t-8 border-red-600">
+            <h2 class="text-3xl font-black text-red-600 text-center mb-2 italic">RIDER APP</h2>
+            <p id="auth-subtitle" class="text-center text-gray-400 font-bold text-sm mb-6 uppercase">খিদে লাগছে ডেলিভারি পার্টনার</p>
+            
+            <div id="login-form">
+                <input type="number" id="login-phone" placeholder="ফোন নম্বর" class="w-full p-4 mb-3 bg-gray-100 rounded-2xl outline-none text-center font-bold text-lg border-2 border-transparent focus:border-red-500">
+                <input type="password" id="login-pin" maxlength="4" placeholder="৪-ডিজিট পিন" class="w-full p-4 mb-4 bg-gray-100 rounded-2xl outline-none text-center font-bold text-lg border-2 border-transparent focus:border-red-500">
+                <button onclick="loginRider()" class="w-full bg-red-600 text-white py-4 rounded-2xl font-black text-xl shadow-lg hover:bg-red-700 transition">লগইন করুন</button>
+                <button onclick="showForgetPassword()" class="w-full text-red-500 text-sm font-bold mt-3">পিন ভুলে গেছেন?</button>
+                <p class="text-center mt-4 text-sm font-bold text-gray-500">অ্যাকাউন্ট নেই? <button onclick="toggleAuth('signup')" class="text-red-600 underline">নিবন্ধন করুন</button></p>
+            </div>
+
+            <div id="signup-form" class="hidden">
+                <input type="text" id="signup-name" placeholder="আপনার নাম" class="w-full p-4 mb-3 bg-gray-100 rounded-2xl outline-none text-center font-bold text-lg border-2 border-transparent focus:border-red-500">
+                <input type="number" id="signup-phone" placeholder="ফোন নম্বর" class="w-full p-4 mb-3 bg-gray-100 rounded-2xl outline-none text-center font-bold text-lg border-2 border-transparent focus:border-red-500">
+                <input type="password" id="signup-pin" maxlength="4" placeholder="৪-ডিজিট পিন সেট করুন" class="w-full p-4 mb-4 bg-gray-100 rounded-2xl outline-none text-center font-bold text-lg border-2 border-transparent focus:border-red-500">
+                <button onclick="signupRider()" class="w-full bg-green-600 text-white py-4 rounded-2xl font-black text-xl shadow-lg hover:bg-green-700 transition">নিবন্ধন সম্পন্ন করুন</button>
+                <p class="text-center mt-4 text-sm font-bold text-gray-500">অ্যাকাউন্ট আছে? <button onclick="toggleAuth('login')" class="text-red-600 underline">লগইন করুন</button></p>
+            </div>
+
+            <div id="forget-form" class="hidden">
+                <p class="text-xs text-center text-gray-500 mb-4 font-bold">আপনার নিবন্ধিত নম্বরটি দিন। একটি ভেরিফিকেশন পিন যাবে।</p>
+                <input type="number" id="forget-phone" placeholder="ফোন নম্বর" class="w-full p-4 mb-3 bg-gray-100 rounded-2xl outline-none text-center font-bold text-lg border-2 border-transparent focus:border-red-500">
+                <div id="otp-section" class="hidden">
+                    <input type="number" id="verify-otp" placeholder="ভেরিফিকেশন পিন দিন" class="w-full p-4 mb-3 bg-blue-50 border-blue-200 rounded-2xl outline-none text-center font-bold text-lg border-2">
+                </div>
+                <button id="forget-btn" onclick="sendOTP()" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-xl shadow-lg">পিন পাঠান</button>
+                <button id="verify-btn" onclick="verifyOTPAndLogin()" class="hidden w-full bg-green-600 text-white py-4 rounded-2xl font-black text-xl shadow-lg">ভেরিফাই এবং লগইন</button>
+                <p class="text-center mt-4 text-sm font-bold text-gray-500"><button onclick="toggleAuth('login')" class="text-gray-400">পিছনে যান</button></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div id="app-content" class="hidden">
+        <header class="bg-white p-4 sticky top-0 z-20 shadow-sm flex justify-between items-center border-b">
+            <div class="flex items-center gap-3">
+                <div class="bg-red-600 w-10 h-10 rounded-full flex items-center justify-center text-white"><i class="fas fa-motorcycle"></i></div>
+                <div>
+                    <h1 id="rider-name-display" class="text-sm font-black text-gray-800 leading-tight">লোড হচ্ছে...</h1>
+                    <p id="live-time" class="text-[9px] font-bold text-gray-400 mb-1">00:00:00 PM</p>
+                    <div class="flex items-center gap-2">
+                        <span id="online-text" class="text-[10px] font-bold text-gray-400 uppercase">অফলাইন</span>
+                        <label class="switch">
+                            <input type="checkbox" id="duty-switch" onchange="toggleDuty(this.checked)">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <button onclick="refreshApp()" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 active:bg-gray-200 transition">
+                    <i id="refresh-icon" class="fas fa-sync-alt text-xs"></i>
+                </button>
+                <div class="text-right">
+                    <p class="text-[10px] text-gray-400 font-bold uppercase leading-tight">আজকের আয়</p>
+                    <p id="today-earning" class="text-lg font-black text-green-600">৳ ০</p>
+                </div>
+            </div>
+        </header>
+
+        <!-- Tasks Tab -->
+        <section id="tab-tasks" class="tab-content active-tab p-4">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-black text-gray-800">চলমান অর্ডার</h2>
+                <span class="bg-blue-100 text-blue-600 px-3 py-1 rounded-full text-[10px] font-bold" id="task-count">০ টি</span>
+            </div>
+            <div id="assigned-orders-list" class="space-y-4"></div>
+            <div id="empty-tasks" class="text-center py-20 hidden">
+                <i class="fas fa-box-open text-gray-200 text-6xl mb-4"></i>
+                <p class="text-gray-400 font-bold">আপাতত কোন নতুন অর্ডার নেই</p>
+            </div>
+        </section>
+
+        <!-- History Tab -->
+        <section id="tab-history" class="tab-content p-4">
+            <h2 class="text-xl font-black mb-4">ডেলিভারি হিস্ট্রি</h2>
+            <div id="history-list" class="space-y-3"></div>
+        </section>
+
+        <!-- Profile Tab -->
+        <section id="tab-profile" class="tab-content p-4">
+            <div class="bg-white p-6 rounded-[2.5rem] shadow-sm text-center border mb-6">
+                <div class="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600 text-3xl border-4 border-white shadow-md"><i class="fas fa-user-tie"></i></div>
+                <h3 id="prof-name" class="font-black text-2xl">-</h3>
+                <p id="prof-phone" class="text-gray-400 font-bold mb-6">-</p>
+                
+                <div class="grid grid-cols-2 gap-3 mb-6">
+                    <div class="bg-gray-50 p-4 rounded-2xl border">
+                        <p class="text-[10px] font-black text-gray-400 uppercase">আজকের ডেলিভারি</p>
+                        <p id="total-del" class="text-xl font-black text-gray-800">০</p>
+                    </div>
+                    <div class="bg-gray-50 p-4 rounded-2xl border">
+                        <p class="text-[10px] font-black text-gray-400 uppercase">আজকের মোট আয়</p>
+                        <p id="total-income-stat" class="text-xl font-black text-green-600">৳ ০</p>
+                    </div>
+                </div>
+
+                <div class="space-y-3 text-left mb-6">
+                    <div onclick="showDetail('wallet')" class="bg-blue-50 p-5 rounded-3xl border border-blue-100 flex justify-between items-center active:scale-95 transition-transform cursor-pointer">
+                        <div>
+                            <p class="text-[10px] font-black text-blue-500 uppercase tracking-widest italic">Wallet (Today Cash Collect)</p>
+                            <h4 class="text-2xl font-black text-gray-800" id="wallet-cash">৳ ০</h4>
+                        </div>
+                        <div class="bg-blue-600 text-white w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg"><i class="fas fa-wallet text-xl"></i></div>
+                    </div>
+
+                    <div onclick="showDetail('payment')" class="bg-orange-50 p-5 rounded-3xl border border-orange-100 flex justify-between items-center active:scale-95 transition-transform cursor-pointer">
+                        <div>
+                            <p class="text-[10px] font-black text-orange-500 uppercase tracking-widest italic">Payment (Today Earned)</p>
+                            <h4 class="text-2xl font-black text-gray-800" id="payment-delivery">৳ ০</h4>
+                        </div>
+                        <div class="bg-orange-500 text-white w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg"><i class="fas fa-hand-holding-usd text-xl"></i></div>
+                    </div>
+                </div>
+            </div>
+            <button onclick="logout()" class="w-full bg-red-50 text-red-600 py-4 rounded-2xl font-black border border-red-100 mb-4">লগআউট করুন</button>
+        </section>
+
+        <!-- Detail Modal -->
+        <div id="detail-modal" class="fixed inset-0 bg-black/60 z-[200] hidden flex items-center justify-center p-4">
+            <div class="bg-white w-full max-w-md rounded-[2.5rem] overflow-hidden flex flex-col max-h-[80vh]">
+                <div class="p-6 border-b flex justify-between items-center bg-gray-50">
+                    <h3 id="modal-title" class="font-black text-lg text-gray-800 uppercase italic">Details</h3>
+                    <button onclick="closeModal()" class="text-gray-400 text-2xl">&times;</button>
+                </div>
+                <div id="modal-content" class="flex-1 overflow-y-auto p-4 space-y-3"></div>
+                <div class="p-4 bg-gray-50 border-t text-center">
+                    <p id="modal-footer-total" class="font-black text-red-600 text-xl"></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat View -->
+        <div id="chat-view" class="fixed inset-0 bg-white z-[300] hidden flex flex-col">
+            <div class="p-4 flex items-center justify-between border-b bg-white">
+                <div class="flex items-center gap-4">
+                    <button onclick="closeChat()"><i class="fas fa-arrow-left text-xl text-red-600"></i></button>
+                    <div>
+                        <h2 id="chat-customer-name" class="text-lg font-black">কাস্টমার চ্যাট</h2>
+                        <p class="text-[10px] text-green-500 font-bold uppercase">অনলাইন</p>
+                    </div>
+                </div>
+                <a id="customer-call-btn" href="#" class="w-10 h-10 bg-green-500 text-white rounded-full flex items-center justify-center shadow-lg"><i class="fas fa-phone-alt"></i></a>
+            </div>
+            <div id="chat-messages" class="flex-1 overflow-y-auto p-4 flex flex-col gap-3 bg-gray-50"></div>
+            <div class="p-4 border-t bg-white flex gap-2">
+                <input type="text" id="chat-input" placeholder="লিখুন..." class="flex-1 p-4 bg-gray-100 rounded-2xl outline-none font-bold">
+                <button onclick="sendChatMessage()" class="bg-red-600 text-white w-12 h-12 rounded-xl flex items-center justify-center shadow-lg"><i class="fas fa-paper-plane"></i></button>
+            </div>
+        </div>
+
+        <!-- Tracking View (Live Map) -->
+        <div id="tracking-view" class="fixed inset-0 bg-white z-[400] hidden flex flex-col">
+            <div class="p-4 border-b flex items-center gap-4 bg-white sticky top-0 z-10">
+                <button onclick="closeTracking()"><i class="fas fa-arrow-left text-red-600 text-xl"></i></button>
+                <h2 class="font-black">লাইভ ট্র্যাকিং (কাস্টমার)</h2>
+            </div>
+            <div class="map-wrapper">
+                <div id="tracking-map"></div>
+            </div>
+            <div class="p-6 bg-white rounded-t-[2.5rem] shadow-2xl -mt-8 z-10 border-t">
+                <div class="flex items-center gap-4">
+                    <div class="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xl shadow-inner">
+                        <i class="fas fa-house-user"></i>
+                    </div>
+                    <div class="flex-1 overflow-hidden">
+                        <p class="text-[10px] font-black text-gray-400 uppercase italic">Customer Destination</p>
+                        <h4 id="track-dest-address" class="font-black text-gray-800 text-sm truncate">লোড হচ্ছে...</h4>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <nav class="fixed bottom-0 left-0 right-0 bg-white border-t flex justify-around py-3 shadow-2xl z-50">
+            <button onclick="switchTab('tasks')" id="nav-tasks" class="flex flex-col items-center nav-active px-6"><i class="fas fa-clipboard-list text-xl"></i><span class="text-[10px] font-bold">Tasks</span></button>
+            <button onclick="switchTab('history')" id="nav-history" class="flex flex-col items-center text-gray-300 px-6"><i class="fas fa-history text-xl"></i><span class="text-[10px] font-bold">History</span></button>
+            <button onclick="switchTab('profile')" id="nav-profile" class="flex flex-col items-center text-gray-300 px-6"><i class="fas fa-user text-xl"></i><span class="text-[10px] font-bold">Profile</span></button>
+        </nav>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyD_TytbX1kd4SKQ5uHZfd5XVGwdw0gzUOE",
+            authDomain: "feeling-hungry-102a9.firebaseapp.com",
+            databaseURL: "https://feeling-hungry-102a9-default-rtdb.firebaseio.com",
+            projectId: "feeling-hungry-102a9",
+            storageBucket: "feeling-hungry-102a9.firebasestorage.app",
+            messagingSenderId: "736201265500",
+            appId: "1:736201265500:web:7b7064b314247c02ad7199"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        let currentRider = null, currentRiderId = null, deliveredOrders = [];
+        let activeChatOrderId = null, watchId = null, wakeLock = null;
+        let isSoundEnabled = localStorage.getItem('khide_rider_sound') !== 'false';
+        let tempForgetRiderId = null;
+        let isAudioUnlocked = false;
+        let monitoredOrders = new Set();
+        let appStartTime = Date.now();
+        
+        // Tracking Map Variables
+        let trackMap = null, riderMarker = null, destMarker = null, isTrackingViewOpen = false;
+        let riderSelfListener = null;
+
+        const alertSound = document.getElementById('alert-sound');
+        const chatSound = document.getElementById('chat-sound');
+
+        function unlockAudio() {
+            if (isAudioUnlocked) return;
+            alertSound.play().then(() => { alertSound.pause(); alertSound.currentTime = 0; }).catch(() => {});
+            chatSound.play().then(() => { chatSound.pause(); chatSound.currentTime = 0; }).catch(() => {});
+            isAudioUnlocked = true;
+        }
+
+        function updateLiveTime() {
+            const options = { timeZone: 'Asia/Dhaka', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true };
+            const now = new Intl.DateTimeFormat('en-US', options).format(new Date());
+            document.getElementById('live-time').innerText = now;
+        }
+        setInterval(updateLiveTime, 1000);
+
+        function refreshApp() {
+            const icon = document.getElementById('refresh-icon');
+            icon.classList.add('animate-spin-custom');
+            if (currentRiderId) { loadAssignedOrders(); loadHistory(); checkNetwork(); }
+            setTimeout(() => { icon.classList.remove('animate-spin-custom'); }, 1200);
+        }
+
+        function toggleAuth(mode) {
+            document.getElementById('login-form').classList.add('hidden');
+            document.getElementById('signup-form').classList.add('hidden');
+            document.getElementById('forget-form').classList.add('hidden');
+            if(mode === 'login') {
+                document.getElementById('login-form').classList.remove('hidden');
+                document.getElementById('auth-subtitle').innerText = "খিদে লাগছে ডেলিভারি পার্টনার";
+            } else if (mode === 'signup') {
+                document.getElementById('signup-form').classList.remove('hidden');
+                document.getElementById('auth-subtitle').innerText = "নতুন রাইডার হিসেবে যোগ দিন";
+            }
+        }
+
+        function showForgetPassword() {
+            document.getElementById('login-form').classList.add('hidden');
+            document.getElementById('forget-form').classList.remove('hidden');
+            document.getElementById('auth-subtitle').innerText = "পিন পুনরুদ্ধার করুন";
+        }
+
+        function loginRider(pPhone = null) {
+            const phone = pPhone || document.getElementById('login-phone').value;
+            const pin = document.getElementById('login-pin').value;
+            if(!phone) return;
+            db.ref('riders').once('value', snap => {
+                let found = false;
+                snap.forEach(child => {
+                    const r = child.val();
+                    if(r.phone == phone) {
+                        if (pPhone || r.pin == pin) {
+                            currentRider = { ...r, id: child.key }; 
+                            currentRiderId = child.key; 
+                            found = true;
+                        }
+                    }
+                });
+                if(found) {
+                    localStorage.setItem('khide_rider_phone', phone);
+                    document.getElementById('auth-screen').classList.add('hidden');
+                    document.getElementById('app-content').classList.remove('hidden');
+                    setupRiderApp();
+                } else if (!pPhone) { alert("ভুল তথ্য বা রাইডার পাওয়া যায়নি!"); }
+            });
+        }
+
+        function signupRider() {
+            const name = document.getElementById('signup-name').value.trim();
+            const phone = document.getElementById('signup-phone').value.trim();
+            const pin = document.getElementById('signup-pin').value.trim();
+            if(!name || !phone || !pin || pin.length !== 4) return alert("সঠিক তথ্য দিন (পিন ৪ ডিজিট)");
+            db.ref('riders').once('value', snap => {
+                let exists = false;
+                snap.forEach(child => { if(child.val().phone == phone) exists = true; });
+                if(exists) return alert("ইতিমধ্যে নিবন্ধিত!");
+                db.ref('riders').push({ name, phone, pin, online: false, wallet: 0 }).then(() => {
+                    alert("নিবন্ধন সফল!"); loginRider(phone);
+                });
+            });
+        }
+
+        function sendOTP() {
+            const phone = document.getElementById('forget-phone').value;
+            db.ref('riders').once('value', snap => {
+                let rKey = null; snap.forEach(c => { if(c.val().phone == phone) rKey = c.key; });
+                if(rKey) {
+                    const otp = Math.floor(1000 + Math.random() * 9000);
+                    db.ref(`riders/${rKey}`).update({ tempOTP: otp });
+                    tempForgetRiderId = rKey;
+                    alert("আপনার পিন: " + otp);
+                    document.getElementById('otp-section').classList.remove('hidden');
+                    document.getElementById('forget-btn').classList.add('hidden');
+                    document.getElementById('verify-btn').classList.remove('hidden');
+                } else alert("নম্বরটি ভুল!");
+            });
+        }
+
+        function verifyOTPAndLogin() {
+            const inputOTP = document.getElementById('verify-otp').value;
+            db.ref(`riders/${tempForgetRiderId}`).once('value', snap => {
+                if(snap.val().tempOTP == inputOTP) {
+                    db.ref(`riders/${tempForgetRiderId}/tempOTP`).remove();
+                    loginRider(snap.val().phone);
+                } else alert("ভুল পিন!");
+            });
+        }
+
+        function setupRiderApp() {
+            document.getElementById('rider-name-display').innerText = currentRider.name;
+            document.getElementById('prof-name').innerText = currentRider.name;
+            document.getElementById('prof-phone').innerText = currentRider.phone;
+            document.getElementById('duty-switch').checked = currentRider.online || false;
+            updateDutyUI(currentRider.online);
+            if(currentRider.online) startLiveTracking();
+            loadAssignedOrders();
+            loadHistory();
+        }
+
+        async function toggleDuty(status) {
+            if (status) {
+                updateGPSUI('REFRESHING');
+                if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen').catch(e=>{});
+                
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => { 
+                        db.ref(`riders/${currentRiderId}`).update({ online: true }); 
+                        updateDutyUI(true); 
+                        startLiveTracking(); 
+                    },
+                    (err) => {
+                        updateGPSUI('ERROR'); 
+                        document.getElementById('duty-switch').checked = false; 
+                        alert("GPS এরর! লোকেশন পারমিশন দিন।"); 
+                    },
+                    { enableHighAccuracy: true, timeout: 10000 }
+                );
+            } else {
+                db.ref(`riders/${currentRiderId}`).update({ online: false });
+                updateDutyUI(false); stopLiveTracking();
+                if(wakeLock) { wakeLock.release(); wakeLock = null; }
+            }
+        }
+
+        function startLiveTracking() {
+            if (watchId) navigator.geolocation.clearWatch(watchId);
+            watchId = navigator.geolocation.watchPosition(
+                (pos) => {
+                    const lat = pos.coords.latitude;
+                    const lng = pos.coords.longitude;
+                    updateGPSUI('ACTIVE');
+                    
+                    db.ref(`riders/${currentRiderId}`).update({
+                        lat: lat, 
+                        lng: lng, 
+                        lastLocationUpdate: firebase.database.ServerValue.TIMESTAMP
+                    });
+                }, 
+                (err) => updateGPSUI('ERROR'), 
+                { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+            );
+        }
+
+        function stopLiveTracking() {
+            if (watchId) navigator.geolocation.clearWatch(watchId);
+            updateGPSUI('DISABLED');
+        }
+
+        function updateGPSUI(state) {
+            const box = document.getElementById('gps-status-box'), icon = document.getElementById('gps-icon-status'), text = document.getElementById('gps-text');
+            if(!box) return; icon.className = "fas";
+            if (state === 'REFRESHING') {
+                box.className = "flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded bg-orange-50 text-orange-500 border border-orange-100";
+                icon.classList.add('fa-circle-notch', 'animate-spin-custom'); text.innerText = "REFRESHING...";
+            } else if (state === 'ACTIVE') {
+                box.className = "flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded bg-green-100 text-green-600";
+                icon.classList.add('fa-check-circle'); text.innerText = "ACTIVE";
+            } else if (state === 'ERROR') {
+                box.className = "flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded bg-red-100 text-red-600";
+                icon.classList.add('fa-exclamation-triangle'); text.innerText = "ERROR";
+            } else {
+                box.className = "flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded bg-gray-100 text-gray-400";
+                icon.classList.add('fa-circle'); text.innerText = "DISABLED";
+            }
+        }
+
+        function checkNetwork() { if (navigator.onLine) db.ref(".info/connected").once("value", s => document.getElementById('network-status').innerText = s.val() ? "CONNECTED" : "SERVER ERR"); else document.getElementById('network-status').innerText = "OFFLINE"; }
+        function updateDutyUI(s) { const t = document.getElementById('online-text'); t.innerText = s ? "অনলাইন" : "অফলাইন"; t.className = `text-[10px] font-bold uppercase ${s ? 'text-green-500' : 'text-gray-400'}`; }
+
+        function loadAssignedOrders() {
+            db.ref('orders').on('value', snap => {
+                const list = document.getElementById('assigned-orders-list'), empty = document.getElementById('empty-tasks');
+                list.innerHTML = ""; let count = 0, hasNew = false;
+                snap.forEach(child => {
+                    const o = child.val();
+                    if(o.riderId === currentRiderId && o.status !== 'DELIVERED') {
+                        count++; renderOrderCard(child.key, o, list);
+                        if(o.status === 'ASSIGNED') hasNew = true;
+                        setupChatMonitor(child.key, o.customerName, o.customerPhone);
+                    }
+                });
+                if(hasNew && isSoundEnabled && isAudioUnlocked) alertSound.play().catch(() => {});
+                else { alertSound.pause(); alertSound.currentTime = 0; }
+                document.getElementById('task-count').innerText = count + " টি";
+                empty.classList.toggle('hidden', count > 0);
+            });
+        }
+
+        function setupChatMonitor(orderId, customerName, customerPhone) {
+            if (monitoredOrders.has(orderId)) return;
+            monitoredOrders.add(orderId);
+            db.ref(`chats/${orderId}`).limitToLast(1).on('child_added', (snapshot) => {
+                const msg = snapshot.val();
+                if (msg.sender === 'customer' && activeChatOrderId !== orderId && (msg.timestamp > appStartTime)) {
+                    showInAppNotification(msg.text, orderId, customerName, customerPhone);
+                    if (isSoundEnabled && isAudioUnlocked) {
+                        chatSound.currentTime = 0;
+                        chatSound.play().catch(()=>{});
+                    }
+                }
+            });
+        }
+
+        function showInAppNotification(text, orderId, name, phone) {
+            const bar = document.getElementById('in-app-notif');
+            document.getElementById('notif-text').innerText = text;
+            bar.classList.add('show');
+            bar.onclick = () => { openChat(orderId, name, phone); closeNotification(); };
+            setTimeout(closeNotification, 5000);
+        }
+
+        function closeNotification() { document.getElementById('in-app-notif').classList.remove('show'); }
+
+        function renderOrderCard(id, o, container) {
+            let actionButtons = '';
+            if(o.status === 'ASSIGNED') {
+                actionButtons = `<div class="flex gap-2"><button onclick="updateStatus('${id}', 'ACCEPTED')" class="flex-1 bg-green-600 text-white py-3 rounded-2xl font-black shadow-md">অর্ডার একসেপ্ট</button><button onclick="cancelOrder('${id}')" class="flex-1 bg-gray-200 text-gray-700 py-3 rounded-2xl font-black border">বাতিল</button></div>`;
+            } else if(o.status === 'ACCEPTED') {
+                actionButtons = `<button onclick="updateStatus('${id}', 'PICKED_UP')" class="w-full bg-orange-500 text-white py-4 rounded-2xl font-black shadow-lg">পিকআপ সম্পন্ন</button>`;
+            } else if(o.status === 'PICKED_UP') {
+                actionButtons = `<button onclick="updateStatus('${id}', 'ARRIVED')" class="w-full bg-blue-500 text-white py-4 rounded-2xl font-black shadow-lg italic">লোকেশন পৌঁছেছি</button>`;
+            } else if(o.status === 'ARRIVED') {
+                actionButtons = `<button onclick="updateStatus('${id}', 'DELIVERED')" class="w-full bg-red-600 text-white py-4 rounded-2xl font-black shadow-lg">ডেলিভারি সম্পন্ন</button>`;
+            }
+            
+            container.innerHTML += `
+            <div class="bg-white p-6 rounded-[2.5rem] shadow-sm border mb-5">
+                <div class="flex justify-between items-start mb-4">
+                    <span class="bg-gray-100 px-4 py-1 rounded-full text-[10px] font-black text-gray-500 uppercase italic">#${id.slice(-5)}</span>
+                    <button onclick="showOrderItems('${id}')" class="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-[10px] font-black border border-blue-100">অর্ডার ডিটেইলস <i class="fas fa-chevron-right ml-1"></i></button>
+                </div>
+                <div class="space-y-4 mb-5">
+                    <div class="flex gap-4">
+                        <div class="w-10 h-10 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-inner"><i class="fas fa-utensils"></i></div>
+                        <div><p class="text-[10px] font-bold text-gray-400 uppercase leading-none">রেস্টুরেন্ট</p><p class="text-sm font-black text-gray-800">${o.restaurantName || 'N/A'}</p></div>
+                    </div>
+                    <div class="flex gap-4">
+                        <div class="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-inner"><i class="fas fa-user"></i></div>
+                        <div><p class="text-[10px] font-bold text-gray-400 uppercase leading-none">কাস্টমার</p><p class="text-sm font-black text-gray-800">${o.customerName || 'N/A'}</p><p class="text-[11px] font-bold text-gray-500 leading-tight">${o.address || ''}</p></div>
+                    </div>
+                </div>
+                <div class="flex flex-col gap-3">
+                    <div class="flex gap-3">
+                        <a href="tel:${o.customerPhone}" class="w-12 h-12 bg-green-100 text-green-600 rounded-2xl flex items-center justify-center shadow-sm active:scale-90 transition-transform"><i class="fas fa-phone-alt"></i></a>
+                        <button onclick="openChat('${id}','${o.customerName}','${o.customerPhone}')" class="w-12 h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center shadow-sm active:scale-90 transition-transform"><i class="fas fa-comment-dots"></i></button>
+                        <button onclick="openTracking('${id}')" class="w-12 h-12 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center shadow-sm active:scale-90 transition-transform"><i class="fas fa-map-location-dot"></i></button>
+                        <button onclick="window.open('https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(o.address)}')" class="w-12 h-12 bg-orange-100 text-orange-600 rounded-2xl flex items-center justify-center shadow-sm active:scale-90 transition-transform"><i class="fas fa-directions"></i></button>
+                    </div>
+                    ${actionButtons}
+                </div>
+            </div>`;
+        }
+
+        // --- TRACKING MAP LOGIC (RIDER MOVES REAL-TIME) ---
+        function openTracking(orderId) {
+            isTrackingViewOpen = true;
+            document.getElementById('tracking-view').classList.remove('hidden');
+            
+            if (!trackMap) {
+                trackMap = L.map('tracking-map', { zoomControl: false }).setView([23.8103, 90.4125], 16);
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png').addTo(trackMap);
+            }
+
+            const riderIcon = L.divIcon({
+                html: '<div class="w-10 h-10 bg-red-600 rounded-full border-4 border-white shadow-lg flex items-center justify-center text-white"><i class="fas fa-motorcycle text-lg"></i></div>',
+                className: '', iconSize: [40, 40], iconAnchor: [20, 20]
+            });
+
+            const destIcon = L.divIcon({
+                html: '<div class="w-10 h-10 bg-blue-600 rounded-full border-4 border-white shadow-lg flex items-center justify-center text-white"><i class="fas fa-house-user text-lg"></i></div>',
+                className: '', iconSize: [40, 40], iconAnchor: [20, 20]
+            });
+
+            // Reset Markers
+            if(riderMarker) trackMap.removeLayer(riderMarker);
+            if(destMarker) trackMap.removeLayer(destMarker);
+            riderMarker = null; destMarker = null;
+
+            db.ref(`orders/${orderId}`).once('value', snap => {
+                const o = snap.val();
+                if(!o) return;
+                document.getElementById('track-dest-address').innerText = o.address;
+
+                // 1. Get Customer Coordinates
+                db.ref(`customers/${o.customerPhone}/addresses`).once('value', addrSnap => {
+                    let customerLat, customerLng;
+                    addrSnap.forEach(a => {
+                        if(a.val().fullAddress === o.address) {
+                            customerLat = a.val().lat;
+                            customerLng = a.val().lng;
+                        }
+                    });
+
+                    if(customerLat && customerLng) {
+                        destMarker = L.marker([customerLat, customerLng], {icon: destIcon}).addTo(trackMap);
+                    }
+
+                    // 2. Start Real-time Rider Movement Listener (Self)
+                    if(riderSelfListener) riderSelfListener.off();
+                    riderSelfListener = db.ref(`riders/${currentRiderId}`);
+                    
+                    riderSelfListener.on('value', rSnap => {
+                        const r = rSnap.val();
+                        if(r && r.lat && r.lng) {
+                            const newPos = [r.lat, r.lng];
+                            if(riderMarker) {
+                                riderMarker.setLatLng(newPos); // SMOOTH MOVEMENT
+                            } else {
+                                riderMarker = L.marker(newPos, {icon: riderIcon}).addTo(trackMap);
+                            }
+
+                            // Fit map to show both markers
+                            if(destMarker) {
+                                const group = new L.featureGroup([riderMarker, destMarker]);
+                                trackMap.fitBounds(group.getBounds().pad(0.3));
+                            } else {
+                                trackMap.panTo(newPos);
+                            }
+                        }
+                    });
+                });
+            });
+
+            setTimeout(() => trackMap.invalidateSize(), 500);
+        }
+
+        function closeTracking() {
+            isTrackingViewOpen = false;
+            document.getElementById('tracking-view').classList.add('hidden');
+            if(riderSelfListener) {
+                riderSelfListener.off();
+                riderSelfListener = null;
+            }
+        }
+
+        function showOrderItems(id) {
+            const m = document.getElementById('detail-modal'), c = document.getElementById('modal-content'), title = document.getElementById('modal-title'), footer = document.getElementById('modal-footer-total');
+            title.innerText = "অর্ডারের বিবরণ (#" + id.slice(-5) + ")";
+            c.innerHTML = '<p class="text-center py-10 font-bold text-gray-400">লোডিং...</p>'; footer.innerText = "";
+            m.classList.remove('hidden');
+            db.ref(`orders/${id}`).once('value', snap => {
+                const o = snap.val(); 
+                if(!o || !o.items) { c.innerHTML = '<p class="text-center py-10 font-bold text-gray-400">আইটেম পাওয়া যায়নি।</p>'; return; }
+                c.innerHTML = ""; 
+                const itemsList = Array.isArray(o.items) ? o.items : Object.values(o.items);
+                itemsList.forEach(item => {
+                    const qty = item.qty || item.quantity || 1;
+                    const price = item.price || 0;
+                    const name = item.name || "Unknown Item";
+                    c.innerHTML += `<div class="flex justify-between p-4 bg-gray-50 rounded-2xl border mb-2"><div class="flex items-center gap-3"><div class="w-8 h-8 bg-red-100 text-red-600 rounded-lg flex items-center justify-center font-black text-xs">${qty}x</div><div><p class="font-black text-sm text-gray-800">${name}</p></div></div><p class="font-black text-sm text-gray-800">৳${qty * price}</p></div>`;
+                });
+                footer.innerText = "মোট বিল: ৳" + (o.total || 0);
+            });
+        }
+
+        function openChat(id, name, phone) {
+            activeChatOrderId = id; 
+            document.getElementById('chat-view').classList.remove('hidden'); 
+            document.getElementById('chat-customer-name').innerText = name; 
+            document.getElementById('customer-call-btn').href = "tel:" + phone;
+            const b = document.getElementById('chat-messages');
+            db.ref(`chats/${id}`).off(); 
+            db.ref(`chats/${id}`).on('value', s => {
+                const messagesData = s.val() || {};
+                const messageList = Object.values(messagesData);
+                b.innerHTML = "";
+                messageList.forEach(d => { 
+                    const isMe = d.sender === 'rider'; 
+                    b.innerHTML += `<div class="flex flex-col ${isMe?'items-end':'items-start'}"><div class="msg-box ${isMe?'msg-rider':'msg-customer'}">${d.text}</div></div>`; 
+                });
+                b.scrollTop = b.scrollHeight;
+            });
+        }
+
+        function sendChatMessage() { const i = document.getElementById('chat-input'); if(!i.value.trim()) return; db.ref(`chats/${activeChatOrderId}`).push({sender:'rider', text:i.value.trim(), timestamp:Date.now()}); i.value=""; }
+        function closeChat() { if(activeChatOrderId) db.ref(`chats/${activeChatOrderId}`).off(); document.getElementById('chat-view').classList.add('hidden'); activeChatOrderId = null; }
+        function updateStatus(id, s) { db.ref(`orders/${id}`).update({ status: s, riderPhone: currentRider.phone, riderName: currentRider.name }); }
+        function cancelOrder(id) { if(confirm("বাতিল করতে চান?")) db.ref(`orders/${id}`).update({ status:'PENDING', riderId:null, riderName:null, riderPhone:null }); }
+
+        function loadHistory() {
+            db.ref('orders').on('value', snap => {
+                const list = document.getElementById('history-list'); list.innerHTML = ""; deliveredOrders = [];
+                let tInc = 0, tDel = 0, tCash = 0;
+                const today = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Dhaka', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+                snap.forEach(child => {
+                    const o = child.val();
+                    if(o.riderId === currentRiderId && o.status === 'DELIVERED') {
+                        const orderDate = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Dhaka', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(o.timestamp || Date.now()));
+                        if(orderDate === today) {
+                            const earn = (parseFloat(o.deliveryCharge) || 0) + (parseFloat(o.tip) || 0);
+                            deliveredOrders.push({ id: child.key, ...o });
+                            tDel++; tInc += earn; tCash += (parseFloat(o.total) || 0);
+                            list.innerHTML += `<div class="bg-white p-4 rounded-2xl flex justify-between items-center border mb-2"><div><p class="font-bold text-sm">${o.restaurantName}</p><p class="text-[9px] text-gray-400 font-bold">${orderDate}</p></div><p class="font-black text-green-600 text-sm">৳${earn}</p></div>`;
+                        }
+                    }
+                });
+                document.getElementById('total-del').innerText = tDel; document.getElementById('total-income-stat').innerText = "৳ " + tInc; document.getElementById('today-earning').innerText = "৳ " + tInc; document.getElementById('wallet-cash').innerText = "৳ " + tCash; document.getElementById('payment-delivery').innerText = "৳ " + tInc;
+            });
+        }
+
+        function showDetail(type) {
+            const m = document.getElementById('detail-modal'), c = document.getElementById('modal-content'); c.innerHTML = ""; let s = 0;
+            const title = document.getElementById('modal-title');
+            title.innerText = type === 'wallet' ? "Cash Collection" : "Earnings Detail";
+            deliveredOrders.forEach(o => {
+                const v = type === 'wallet' ? parseFloat(o.total) : (parseFloat(o.deliveryCharge) + parseFloat(o.tip)); s += v;
+                c.innerHTML += `<div class="flex justify-between p-3 bg-gray-50 rounded-2xl border mb-2"><p class="font-black text-xs">${o.restaurantName}</p><p class="text-sm font-black">৳ ${v}</p></div>`;
+            });
+            document.getElementById('modal-footer-total').innerText = "Total: ৳ " + s; m.classList.remove('hidden');
+        }
+        function closeModal() { document.getElementById('detail-modal').classList.add('hidden'); }
+        function switchTab(t) { document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active-tab')); document.getElementById('tab-' + t).classList.add('active-tab'); document.querySelectorAll('nav button').forEach(b => b.classList.replace('nav-active', 'text-gray-300')); document.getElementById('nav-' + t).classList.replace('text-gray-300', 'nav-active'); }
+        
+        function logout() { 
+            stopLiveTracking(); alertSound.pause(); if(wakeLock) wakeLock.release();
+            db.ref('orders').off(); if(currentRiderId) db.ref(`riders/${currentRiderId}`).off();
+            localStorage.removeItem('khide_rider_phone'); location.reload(); 
+        }
+
+        const savedPhone = localStorage.getItem('khide_rider_phone');
+        if(savedPhone) loginRider(savedPhone);
+    </script>
+</body>
+</html>
